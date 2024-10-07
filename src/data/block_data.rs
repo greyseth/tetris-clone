@@ -1,8 +1,8 @@
 pub const I_BLOCK: [[bool; 4]; 4] = [
-    [true, false, false, false],
-    [true, false, false, false],
-    [true, false, false, false],
-    [true, false, false, false]
+    [false, true, false, false],
+    [false, true, false, false],
+    [false, true, false, false],
+    [false, true, false, false]
 ];
 
 pub const J_BLOCK: [[bool; 4]; 4] = [

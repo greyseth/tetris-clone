@@ -21,8 +21,17 @@ async fn main() {
     let mut move_counter = 0.0;
     let mut boosting = false;
 
+    let mut paused = false;
+
     loop {
+        if paused {
+            if is_key_pressed(KeyCode::Escape) {paused = false;}
+            return next_frame().await
+        }
+        
         clear_background(BLACK);
+
+        if is_key_pressed(KeyCode::Escape) {paused = false;}
 
         if is_key_down(KeyCode::Down) {boosting = true;}
         else {boosting = false;}
@@ -47,8 +56,9 @@ async fn main() {
             move_counter = 0.0;
         }
 
-        // Checks for horizontal movement
+        // Checks for horizontal and rotational movement
         move_block_horizontal(&mut block, placed_tiles.clone());
+        rotate_block(&mut block);
 
         // Checks for instantaneous movement (hehe)
         if is_key_pressed(KeyCode::Space) {move_block_instant(&mut block, &mut placed_tiles);}
@@ -112,7 +122,8 @@ fn move_block(block: &mut Block, placed_tiles: &mut Vec<Tile>) {
     } else {
         // Adds to placed tiles
         placed_tiles.extend_from_slice(&block.tiles);
-        spawn_block(block);
+        check_lines(placed_tiles);
+        block.null = true;
     }
 }
 
@@ -142,6 +153,7 @@ fn move_block_instant(block: &mut Block, placed_tiles: &mut Vec<Tile>) {
     }
 
     placed_tiles.extend_from_slice(&block.tiles);
+    check_lines(placed_tiles);
     block.null = true;
 }
 
@@ -183,17 +195,36 @@ fn move_block_horizontal(block: &mut Block, placed_tiles: Vec<Tile>) {
     }
 }
 
-// Unfinished function
-// fn rotate_block(block: &mut Block) {
-//     let prev_tiles = block.tiles.clone();
+fn rotate_block(block: &mut Block) {
+    let prev_tiles = block.tiles.clone();
 
-//     // Calculates center point of block
-//     let mut x_sum = 0.0;
-//     let mut y_sum = 0.0;
+    // Calculates center point of block
+    let mut x_sum = 0.0;
+    let mut y_sum = 0.0;
+    for tile in block.tiles.clone() {
+        x_sum += tile.pos.x as f64;
+        y_sum += tile.pos.y as f64;
+    }
 
+    let center: Vector2 = Vector2::new((x_sum / block.tiles.len() as f64) as i32, (y_sum / block.tiles.len() as f64) as i32);
+    
+    // Gets rotation input
+    let mut rotate_angle = 0;
+    if is_key_pressed(KeyCode::A) {rotate_angle = -90;}
+    else if is_key_pressed(KeyCode::D) {rotate_angle = 90;}
 
-//     let center: Vector2 = Vector2::new(0.0, 0.0);
-// }
+    // Rotates each tile according to center point
+    if rotate_angle != 0 {
+        for tile in &mut block.tiles {
+            if !(tile.pos.x == center.x && tile.pos.y == center.y) {
+                tile.pos = rotate_point(center.x, center.y, rotate_angle, tile.pos.clone());
+            }
+
+            // Shitty hack for now ig
+            tile.pos.x += 1;
+        }
+    }
+}
 
 fn spawn_block(block: &mut Block) {
     let color_index = rand::thread_rng().gen_range(1..=6);
@@ -222,4 +253,36 @@ fn spawn_block(block: &mut Block) {
     else if block_index == 7 {block_type = Z_BLOCK}
     
     *block = Block::new(color, block_type);
+}
+
+fn rotate_point(cx: i32, cy: i32, angle: i32, p: Vector2) -> Vector2 {
+    let mut rotated_vector = Vector2::new(0, 0);
+    let mut local_vector = Vector2::new(p.x - cx, p.y - cy);
+
+    local_vector = Vector2::new(-local_vector.y, local_vector.x);
+    rotated_vector = Vector2::new(local_vector.x + cx, local_vector.y + cy);
+
+    rotated_vector
+}
+
+fn check_lines(placed_tiles: &mut Vec<Tile>) {
+    // Checks each tile for a completed line
+    // This needs some cleaning...
+    for row in 0..20 {
+        let mut index_to_delete: Vec<usize> = Vec::new();
+        let mut row_tiles = 0;
+        for (i, tile) in placed_tiles.iter().enumerate() {
+            if tile.pos.y == row {row_tiles += 1; index_to_delete.push(i);}
+        }
+
+        if row_tiles >= 10 {
+            for col in 0..10 {
+                placed_tiles.remove(placed_tiles.iter().position(|tile| tile.pos.y == row).unwrap());
+            }
+
+            for tile in placed_tiles.iter_mut() {
+                if tile.pos.y < row {tile.pos.y += 1;}
+            }
+        }
+    }
 }
