@@ -1,7 +1,7 @@
-use std::{f32::INFINITY, thread::spawn};
+use std::{f32::INFINITY, fmt::format, thread::spawn};
 
 use data::block_data::{I_BLOCK, J_BLOCK, L_BLOCK, O_BLOCK, S_BLOCK, T_BLOCK, Z_BLOCK};
-use macroquad::{color::{self, Color, BLACK, BLUE, GRAY, GREEN, PURPLE, RED, WHITE, YELLOW}, input::{is_key_down, is_key_pressed, KeyCode}, prelude::coroutines::wait_seconds, shapes::{draw_rectangle, draw_rectangle_lines}, text::draw_text, time::get_frame_time, window::{clear_background, next_frame, request_new_screen_size, screen_height, screen_width}};
+use macroquad::{color::{self, Color, BLACK, BLUE, GRAY, GREEN, PURPLE, RED, WHITE, YELLOW}, input::{is_key_down, is_key_pressed, KeyCode}, prelude::coroutines::wait_seconds, shapes::{draw_rectangle, draw_rectangle_lines}, text::draw_text, time::get_frame_time, ui::root_ui, window::{clear_background, next_frame, request_new_screen_size, screen_height, screen_width}};
 
 mod models {pub mod vector2; pub mod tile; pub mod block; }
 mod data {pub mod block_data;}
@@ -18,7 +18,8 @@ const MOVE_BOOST_INTERVAL: f64 = 0.1;
 async fn main() {
     let mut bag = Bag::create_bag();
     
-    let mut block: Block = Block::empty();    
+    let mut block: Block = Block::empty(); 
+    let mut next_block: Block = bag.bag_next_preview();
 
     let mut placed_tiles: Vec<Tile> = Vec::new();
 
@@ -26,6 +27,10 @@ async fn main() {
     let mut boosting = false;
 
     let mut paused = false;
+
+    let mut score = 0;
+    let mut lines = 0;
+    let mut max_combo = 0;
 
     loop {
         if paused {
@@ -40,7 +45,7 @@ async fn main() {
         if is_key_down(KeyCode::Down) {boosting = true;}
         else {boosting = false;}
 
-        if block.null == true {spawn_block(&mut block, &mut bag);}
+        if block.null == true {spawn_block(&mut block, &mut bag, &mut next_block);}
 
         let area_width = TILE_SIZE * 10 as f32;
         let area_height = TILE_SIZE * 20 as f32;
@@ -56,7 +61,7 @@ async fn main() {
         // Moves down over time
         move_counter += get_frame_time();
         if move_counter >= if boosting {MOVE_BOOST_INTERVAL} else {MOVE_INTERVAL} as f32 {
-            move_block(&mut block, &mut placed_tiles);
+            move_block(&mut block, &mut placed_tiles, &mut lines, &mut max_combo, &mut score);
             move_counter = 0.0;
         }
 
@@ -65,7 +70,7 @@ async fn main() {
         rotate_block(&mut block);
 
         // Checks for instantaneous movement (hehe)
-        if is_key_pressed(KeyCode::Space) {move_block_instant(&mut block, &mut placed_tiles);}
+        if is_key_pressed(KeyCode::Space) {move_block_instant(&mut block, &mut placed_tiles, &mut lines, &mut max_combo, &mut score);}
 
         if block.null != true {
             for tile in &block.tiles {create_tile(tile.pos.x, tile.pos.y, tile.color);}
@@ -74,6 +79,18 @@ async fn main() {
         for tile in &placed_tiles {
             create_tile(tile.pos.x, tile.pos.y, WHITE);
         }
+
+        // Creates preview for next block
+        draw_rectangle_lines(TILE_SIZE*23.0, TILE_SIZE*2.0, TILE_SIZE*4.0, TILE_SIZE*4.0, 2.0, GRAY);
+        for tile in &next_block.tiles {
+            draw_rectangle(TILE_SIZE*20.0+TILE_SIZE*(tile.pos.x as f32), TILE_SIZE*2.0+TILE_SIZE*(tile.pos.y as f32), TILE_SIZE, TILE_SIZE, tile.color);
+            draw_rectangle_lines(TILE_SIZE*20.0+TILE_SIZE*(tile.pos.x as f32), TILE_SIZE*2.0+TILE_SIZE*(tile.pos.y as f32), TILE_SIZE, TILE_SIZE, 2.0, BLACK);
+        }
+
+        // Score display
+        draw_text(format!("Score: {}", &score).as_str(), TILE_SIZE*23.0, TILE_SIZE*7.0, 20.0, WHITE);
+        draw_text(format!("Lines: {}", &lines).as_str(), TILE_SIZE*23.0, TILE_SIZE*8.0, 20.0, WHITE);
+        draw_text(format!("Max Combo: {}", &max_combo).as_str(), TILE_SIZE*23.0, TILE_SIZE*9.0, 20.0, WHITE);
 
         next_frame().await
     }
@@ -97,7 +114,7 @@ fn create_tile(pos_x: i32, pos_y: i32, col: Color) {
     }
 }
 
-fn move_block(block: &mut Block, placed_tiles: &mut Vec<Tile>) {
+fn move_block(block: &mut Block, placed_tiles: &mut Vec<Tile>, lines:&mut i32, max_combo: &mut i32, score: &mut i32) {
     let mut has_placed = false;
 
     for tile in &block.tiles {
@@ -126,12 +143,12 @@ fn move_block(block: &mut Block, placed_tiles: &mut Vec<Tile>) {
     } else {
         // Adds to placed tiles
         placed_tiles.extend_from_slice(&block.tiles);
-        check_lines(placed_tiles);
+        check_lines(placed_tiles, lines, max_combo, score);
         block.null = true;
     }
 }
 
-fn move_block_instant(block: &mut Block, placed_tiles: &mut Vec<Tile>) {
+fn move_block_instant(block: &mut Block, placed_tiles: &mut Vec<Tile>, lines: &mut i32, max_combo: &mut i32, score: &mut i32) {
     let mut move_distances: Vec<i32> = Vec::new();
     
     // Checks each tile for where they stop
@@ -157,7 +174,7 @@ fn move_block_instant(block: &mut Block, placed_tiles: &mut Vec<Tile>) {
     }
 
     placed_tiles.extend_from_slice(&block.tiles);
-    check_lines(placed_tiles);
+    check_lines(placed_tiles, lines, max_combo, score);
     block.null = true;
 }
 
@@ -257,9 +274,17 @@ fn rotate_block(block: &mut Block) {
     }
 }
 
-fn spawn_block(block: &mut Block, bag: &mut Bag) {
-    if bag.cur_index < 6 {*block = bag.bag_next();}
-    else {*bag = Bag::create_bag(); *block = bag.bag_next();}
+fn spawn_block(block: &mut Block, bag: &mut Bag, next_block: &mut Block) {    
+    if bag.cur_index < 6 {
+        *next_block = bag.bag_next_preview();
+        *block = bag.bag_next();
+    }
+    else {
+        *bag = Bag::create_bag(); 
+        *next_block = bag.bag_next_preview();
+        *block = bag.bag_next();
+    }
+
 }
 
 fn rotate_point(cx: i32, cy: i32, angle: i32, p: Vector2) -> Vector2 {
@@ -272,9 +297,11 @@ fn rotate_point(cx: i32, cy: i32, angle: i32, p: Vector2) -> Vector2 {
     rotated_vector
 }
 
-fn check_lines(placed_tiles: &mut Vec<Tile>) {
+fn check_lines(placed_tiles: &mut Vec<Tile>, lines: &mut i32, max_combo: &mut i32, score: &mut i32) {
     // Checks each tile for a completed line
     // This needs some cleaning...
+
+    let mut combo = 0;
     for row in 0..20 {
         let mut index_to_delete: Vec<usize> = Vec::new();
         let mut row_tiles = 0;
@@ -290,6 +317,13 @@ fn check_lines(placed_tiles: &mut Vec<Tile>) {
             for tile in placed_tiles.iter_mut() {
                 if tile.pos.y < row {tile.pos.y += 1;}
             }
+
+            *lines += 1;
+            combo += 1;
         }
     }
+
+    if combo > *max_combo {*max_combo = combo;}
+
+    *score += 125 * combo;
 }
