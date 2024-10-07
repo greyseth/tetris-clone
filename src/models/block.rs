@@ -2,6 +2,7 @@ use macroquad::color::Color;
 
 use super::tile::Tile;
 
+#[derive(Clone)]
 pub struct Block {
     pub tiles: Vec<Tile>,
     pub placed: bool,

@@ -5,8 +5,10 @@ use macroquad::{color::{self, Color, BLACK, BLUE, GRAY, GREEN, PURPLE, RED, WHIT
 
 mod models {pub mod vector2; pub mod tile; pub mod block; }
 mod data {pub mod block_data;}
+mod system {pub mod bagging;}
 use models::{block::Block, tile::{self, Tile}, vector2::Vector2};
 use rand::Rng;
+use system::bagging::{self, Bag};
 
 const TILE_SIZE: f32 = 25.0;
 const MOVE_INTERVAL: f64 = 1.0;
@@ -14,6 +16,8 @@ const MOVE_BOOST_INTERVAL: f64 = 0.1;
 
 #[macroquad::main("Tetris Clone")]
 async fn main() {
+    let mut bag = Bag::create_bag();
+    
     let mut block: Block = Block::empty();    
 
     let mut placed_tiles: Vec<Tile> = Vec::new();
@@ -36,7 +40,7 @@ async fn main() {
         if is_key_down(KeyCode::Down) {boosting = true;}
         else {boosting = false;}
 
-        if block.null == true {spawn_block(&mut block);}
+        if block.null == true {spawn_block(&mut block, &mut bag);}
 
         let area_width = TILE_SIZE * 10 as f32;
         let area_height = TILE_SIZE * 20 as f32;
@@ -223,36 +227,39 @@ fn rotate_block(block: &mut Block) {
             // Shitty hack for now ig
             tile.pos.x += 1;
         }
+
+        // Checks if rotated block is out of bounds
+        loop {
+            let mut out_of_bounds = false;
+        
+            for tile in &mut block.tiles {
+                if tile.pos.x < 0 {
+                    // If any tile is out of the left bound, adjust all tiles
+                    for tile in &mut block.tiles {
+                        tile.pos.x += 1;
+                    }
+                    out_of_bounds = true;
+                    break; // Break out to recheck bounds after adjustment
+                } else if tile.pos.x >= 10 {
+                    // If any tile is out of the right bound, adjust all tiles
+                    for tile in &mut block.tiles {
+                        tile.pos.x -= 1;
+                    }
+                    out_of_bounds = true;
+                    break; // Break out to recheck bounds after adjustment
+                }
+            }
+        
+            if !out_of_bounds {
+                break;
+            }
+        }
     }
 }
 
-fn spawn_block(block: &mut Block) {
-    let color_index = rand::thread_rng().gen_range(1..=6);
-    let block_index = rand::thread_rng().gen_range(1..=7);
-
-    let mut color = Color::new(0.0, 0.0, 0.0, 0.0);
-    let mut block_type: [[bool; 4]; 4] = [
-        [false, false, false, false], 
-        [false, false, false, false], 
-        [false, false, false, false], 
-        [false, false, false, false]];
-
-    if color_index == 1 {color = YELLOW;}
-    else if color_index == 2 {color = BLUE;}
-    else if color_index == 3 {color = RED;}
-    else if color_index == 4 {color = GREEN;}
-    else if color_index == 5 {color = PURPLE;}
-    else if color_index == 6 {color = GRAY;}
-
-    if block_index == 1 {block_type = I_BLOCK;}
-    else if block_index == 2 {block_type = J_BLOCK;}
-    else if block_index == 3 {block_type = L_BLOCK;}
-    else if block_index == 4 {block_type = T_BLOCK;}
-    else if block_index == 5 {block_type = O_BLOCK;}
-    else if block_index == 6 {block_type = S_BLOCK;}
-    else if block_index == 7 {block_type = Z_BLOCK}
-    
-    *block = Block::new(color, block_type);
+fn spawn_block(block: &mut Block, bag: &mut Bag) {
+    if bag.cur_index < 6 {*block = bag.bag_next();}
+    else {*bag = Bag::create_bag(); *block = bag.bag_next();}
 }
 
 fn rotate_point(cx: i32, cy: i32, angle: i32, p: Vector2) -> Vector2 {
